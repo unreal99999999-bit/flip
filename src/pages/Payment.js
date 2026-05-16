@@ -4,9 +4,9 @@ import { getPaymentUrl, getCashfreeCreds, saveOrder } from '../store';
 
 export default function Payment() {
   const { state } = useLocation();
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError]     = useState('');
 
   if (!state?.product) {
     return (
@@ -17,82 +17,110 @@ export default function Payment() {
   }
 
   const { product, colorIndex, name, number } = state;
-  const img = (product.colorImageUrls||[])[colorIndex]?.trim() || (product.colorImageUrls||[])[0]?.trim();
-  const creds = getCashfreeCreds();
-  const upiUrl = getPaymentUrl();
-  const hasCashfree = !!(creds.appId && creds.secretKey);
+  const img    = (product.colorImageUrls||[])[colorIndex]?.trim() || (product.colorImageUrls||[])[0]?.trim();
+  const creds  = getCashfreeCreds();
+  const upiId  = getPaymentUrl();
+  const hasCF  = !!(creds.appId && creds.secretKey);
+  const amount = product.price;
 
-  const UPI_APPS = [
-    { name:'PhonePe', src:'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/PhonePe_Logo.png/200px-PhonePe_Logo.png' },
-    { name:'GPay',    src:'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Google_Pay_Logo.svg/120px-Google_Pay_Logo.svg.png' },
-    { name:'Paytm',   src:'https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Paytm_logo.png/200px-Paytm_logo.png' },
-    { name:'BHIM',    src:'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ee/BHIM-logo.svg/120px-BHIM-logo.svg.png' },
-  ];
+  /* ── build UPI deep-link for a specific app ── */
+  const upiLink = (app) => {
+    const base = `pa=${encodeURIComponent(upiId)}&pn=ShopNow&am=${amount}&cu=INR&tn=Order`;
+    const links = {
+      phonepe: `phonepe://pay?${base}`,
+      gpay:    `tez://upi/pay?${base}`,
+      paytm:   `paytmmp://pay?${base}`,
+      bhim:    `upi://pay?${base}`,
+    };
+    return links[app] || `upi://pay?${base}`;
+  };
 
-  /* ── Cashfree via Netlify Function ── */
+  const openUpiApp = (app) => {
+    if (!upiId) { setError('No UPI ID configured. Contact admin.'); return; }
+    window.location.href = upiLink(app);
+  };
+
+  /* ── Cashfree gateway ── */
   const handleCashfreePayment = async () => {
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
       const orderId = 'order_' + Date.now();
-      saveOrder({ name, number, productId: product._id, colorIndex, productName: product.name, productPrice: product.price, orderId });
+      saveOrder({ name, number, productId:product._id, colorIndex, productName:product.name, productPrice:product.price, orderId });
 
       const res  = await fetch('/api/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({
-          amount: product.price,
-          customerName: name || 'Customer',
-          customerPhone: number || '9999999999',
-          orderId,
-          appId: creds.appId,
-          secretKey: creds.secretKey,
-          environment: creds.environment || 'production',
-        }),
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ amount, customerName:name||'Customer', customerPhone:number||'9999999999', orderId, appId:creds.appId, secretKey:creds.secretKey, environment:creds.environment||'production' }),
       });
       const data = await res.json();
+      if (!res.ok || data.error) { setError(data.error||'Payment failed. Try again.'); setLoading(false); return; }
 
-      if (!res.ok || data.error) {
-        setError(data.error || 'Payment failed. Please try again.');
-        setLoading(false);
-        return;
-      }
-
-      if (data.payment_link) {
-        window.location.href = data.payment_link;
-        return;
-      }
+      if (data.payment_link) { window.location.href = data.payment_link; return; }
 
       if (data.payment_session_id) {
-        /* load Cashfree JS SDK then open checkout — user sees PhonePe/GPay/Paytm, no "Cashfree" label */
-        const script = document.createElement('script');
-        script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
-        script.onload = () => {
-          const cf = window.Cashfree({ mode: creds.environment === 'production' ? 'production' : 'sandbox' });
+        const script    = document.createElement('script');
+        script.src      = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+        script.onload   = () => {
+          const cf = window.Cashfree({ mode: creds.environment==='production'?'production':'sandbox' });
           cf.checkout({ paymentSessionId: data.payment_session_id, redirectTarget:'_self' });
         };
-        script.onerror = () => { setError('Could not load payment. Try again.'); setLoading(false); };
+        script.onerror  = () => { setError('Could not load payment. Try UPI below.'); setLoading(false); };
         document.body.appendChild(script);
         return;
       }
-
-      setError('No payment link received. Check your App ID & Secret Key.');
+      setError('No payment link received. Check Admin → Payment settings.');
       setLoading(false);
-    } catch (err) {
-      setError('Network error. Check your connection.');
-      setLoading(false);
-    }
+    } catch { setError('Network error. Check connection.'); setLoading(false); }
   };
 
-  /* ── Fallback UPI deep-link ── */
-  const handleUpiPay = () => {
-    if (!upiUrl) { setError('No payment method configured. Go to Admin → Payment Gateway.'); return; }
-    window.location.href = upiUrl.startsWith('http')
-      ? upiUrl
-      : `upi://pay?pa=${encodeURIComponent(upiUrl)}&pn=ShopNow&am=${product.price}&cu=INR&tn=Order`;
-  };
-
-  const mainAction = hasCashfree ? handleCashfreePayment : handleUpiPay;
+  const UPI_APPS = [
+    {
+      id:'phonepe', name:'PhonePe',
+      logo: (
+        <div style={{ width:52, height:52, borderRadius:12, background:'#5f259f', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <svg viewBox="0 0 40 40" width="34" height="34" fill="none">
+            <circle cx="20" cy="20" r="20" fill="#5f259f"/>
+            <text x="20" y="27" textAnchor="middle" fontSize="22" fontWeight="900" fill="#fff" fontFamily="Arial">P</text>
+          </svg>
+        </div>
+      ),
+    },
+    {
+      id:'gpay', name:'Google Pay',
+      logo: (
+        <div style={{ width:52, height:52, borderRadius:12, background:'#fff', border:'1px solid #eee', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 1px 4px rgba(0,0,0,.1)' }}>
+          <svg viewBox="0 0 40 24" width="38" height="22">
+            <text x="0" y="18" fontSize="13" fontWeight="700" fontFamily="Arial">
+              <tspan fill="#4285F4">G</tspan>
+              <tspan fill="#EA4335">o</tspan>
+              <tspan fill="#FBBC04">o</tspan>
+              <tspan fill="#4285F4">g</tspan>
+              <tspan fill="#34A853">l</tspan>
+              <tspan fill="#EA4335">e</tspan>
+            </text>
+            <text x="0" y="32" fontSize="0">Pay</text>
+          </svg>
+        </div>
+      ),
+    },
+    {
+      id:'paytm', name:'Paytm',
+      logo: (
+        <div style={{ width:52, height:52, borderRadius:12, background:'#002970', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <svg viewBox="0 0 60 20" width="46" height="16">
+            <text x="0" y="16" fontSize="14" fontWeight="900" fontFamily="Arial" fill="#00BAF2">paytm</text>
+          </svg>
+        </div>
+      ),
+    },
+    {
+      id:'bhim', name:'BHIM UPI',
+      logo: (
+        <div style={{ width:52, height:52, borderRadius:12, background:'#fff', border:'1px solid #eee', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ fontSize:11, fontWeight:900, color:'#3d5a80', textAlign:'center', lineHeight:1.2 }}>BHIM<br/><span style={{ color:'#e53935', fontSize:9 }}>UPI</span></div>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <>
@@ -103,110 +131,120 @@ export default function Payment() {
             <path d="M17.556 7.847H1M7.45 1L1 7.877l6.45 6.817" stroke="#212121" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </div>
-        <span style={{ fontWeight:700, fontSize:15, color:'#212121' }}>Payment</span>
+        <span style={{ fontWeight:700, fontSize:16, color:'#212121' }}>Payment</span>
       </div>
 
       {/* Progress */}
-      <div style={{ background:'#fff', padding:'10px 16px 8px', marginBottom:2 }}>
-        <div style={{ height:4, background:'#eee', borderRadius:2, marginBottom:8 }}>
+      <div style={{ background:'#fff', padding:'8px 16px', marginBottom:2 }}>
+        <div style={{ height:4, background:'#eee', borderRadius:2, marginBottom:6 }}>
           <div style={{ width:'100%', height:'100%', background:'#2874F0', borderRadius:2 }} />
         </div>
         <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#aaa' }}>
-          <span>Address</span><span>Order Summary</span>
-          <span style={{ color:'#2874F0', fontWeight:700 }}>Payment</span>
+          <span>Address</span><span>Order Summary</span><span style={{ color:'#2874F0', fontWeight:700 }}>Payment</span>
         </div>
       </div>
 
-      <div style={{ paddingBottom:80 }}>
-        {/* Order recap */}
+      <div style={{ paddingBottom:84 }}>
+
+        {/* Product recap */}
         <div style={{ background:'#fff', padding:14, marginBottom:2, display:'flex', gap:12, alignItems:'center' }}>
-          <img src={img} alt="" style={{ width:60, height:60, objectFit:'contain' }}
-            onError={e => { e.target.src='https://via.placeholder.com/60'; }} />
-          <div>
-            <div style={{ fontSize:13, fontWeight:500, lineHeight:1.4 }}>{product.name}</div>
-            <div style={{ fontSize:20, fontWeight:800, marginTop:4 }}>₹{Number(product.price).toLocaleString()}</div>
+          <img src={img} alt="" style={{ width:64, height:64, objectFit:'contain', border:'1px solid #f0f0f0', borderRadius:4 }}
+            onError={e => { e.target.src='https://via.placeholder.com/64'; }} />
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, color:'#212121', lineHeight:1.4, marginBottom:4 }}>{product.name}</div>
+            <div style={{ fontSize:20, fontWeight:900, color:'#212121' }}>₹{Number(amount).toLocaleString()}</div>
           </div>
         </div>
 
         {/* Error */}
         {error && (
-          <div style={{ background:'#ffebee', border:'1px solid #ffcdd2', borderRadius:4, padding:'10px 14px', fontSize:13, color:'#c62828', margin:'0 0 2px' }}>
+          <div style={{ background:'#ffebee', border:'1px solid #ffcdd2', padding:'10px 14px', fontSize:13, color:'#c62828', marginBottom:2 }}>
             ⚠️ {error}
           </div>
         )}
 
-        {/* Payment section */}
-        <div style={{ background:'#fff', padding:16, marginBottom:2 }}>
-          <div style={{ fontSize:14, fontWeight:700, marginBottom:14, color:'#212121' }}>
-            {hasCashfree ? 'Choose Payment Method' : 'Pay via UPI'}
-          </div>
-
-          {/* UPI app icons */}
-          <div style={{ display:'flex', gap:18, flexWrap:'wrap', marginBottom:16 }}>
-            {UPI_APPS.map(app => (
-              <div key={app.name} onClick={mainAction}
-                style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}>
-                <img src={app.src} alt={app.name}
-                  style={{ width:48, height:48, objectFit:'contain', borderRadius:12, border:'1px solid #f0f0f0', padding:4 }}
-                  onError={e => { e.target.style.display='none'; }} />
-                <span style={{ fontSize:11, color:'#555', fontWeight:500 }}>{app.name}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Extra options for Cashfree */}
-          {hasCashfree && (
+        {/* ── CASHFREE (if configured) ── */}
+        {hasCF && (
+          <div style={{ background:'#fff', padding:16, marginBottom:2 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#212121', marginBottom:14 }}>Choose Payment Method</div>
+            <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:16 }}>
+              {UPI_APPS.map(app => (
+                <div key={app.id} onClick={handleCashfreePayment}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, cursor: loading?'not-allowed':'pointer', opacity: loading?.6:1 }}>
+                  {app.logo}
+                  <span style={{ fontSize:11, color:'#555', fontWeight:600 }}>{app.name}</span>
+                </div>
+              ))}
+            </div>
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
-              {['Credit / Debit Card', 'Net Banking', 'Wallet'].map(m => (
-                <div key={m} onClick={mainAction}
-                  style={{ border:'1px solid #ddd', borderRadius:20, padding:'6px 14px', fontSize:12, color:'#333', cursor:'pointer', background:'#fafafa' }}>
+              {['Credit / Debit Card','Net Banking','Wallet'].map(m => (
+                <div key={m} onClick={handleCashfreePayment}
+                  style={{ border:'1px solid #ddd', borderRadius:20, padding:'7px 14px', fontSize:12, color:'#333', cursor:'pointer', background:'#fafafa' }}>
                   {m}
                 </div>
               ))}
             </div>
-          )}
-
-          {/* UPI ID box (fallback mode only) */}
-          {!hasCashfree && upiUrl && (
-            <div style={{ background:'#f5f7ff', border:'1px solid #c5d5ff', borderRadius:6, padding:'10px 14px', marginBottom:12 }}>
-              <div style={{ fontSize:10, color:'#888', marginBottom:2 }}>UPI ID:</div>
-              <strong style={{ color:'#2874F0', wordBreak:'break-all' }}>{upiUrl}</strong>
-            </div>
-          )}
-
-          {/* Note */}
-          <div style={{ background: hasCashfree ? '#e8f5e9' : '#fff8e1', border:`1px solid ${hasCashfree ? '#c8e6c9' : '#ffe082'}`, borderRadius:4, padding:'10px 12px', fontSize:12, color: hasCashfree ? '#2e7d32' : '#5d4037' }}>
-            {hasCashfree
-              ? '✅ Secure payment powered by your gateway. PhonePe, GPay & all UPI apps supported.'
-              : '⚠️ After payment, send screenshot to confirm your order. Thank you!'}
+            <button onClick={handleCashfreePayment} disabled={loading}
+              style={{ width:'100%', background: loading?'#ccc':'#fb641b', color:'#fff', border:'none', borderRadius:4, padding:14, fontSize:15, fontWeight:700, cursor: loading?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+              {loading
+                ? <><span style={{ width:16,height:16,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin .7s linear infinite' }}/> Processing...</>
+                : `PAY ₹${Number(amount).toLocaleString()} SECURELY`}
+            </button>
+            <div style={{ textAlign:'center', fontSize:11, color:'#aaa', marginTop:8 }}>🔒 Secured · All UPI, Cards & Wallets accepted</div>
           </div>
+        )}
+
+        {/* ── UPI DIRECT (always shown) ── */}
+        <div style={{ background:'#fff', padding:16, marginBottom:2 }}>
+          <div style={{ fontSize:15, fontWeight:700, color:'#212121', marginBottom:4 }}>
+            {hasCF ? 'Or Pay Directly via UPI App' : 'Pay via UPI'}
+          </div>
+          <div style={{ fontSize:12, color:'#888', marginBottom:16 }}>Tap an app — it opens automatically with the amount pre-filled</div>
+
+          {/* UPI App grid — each opens that specific app */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
+            {UPI_APPS.map(app => (
+              <div key={app.id} onClick={() => openUpiApp(app.id)}
+                style={{ display:'flex', alignItems:'center', gap:12, border:'1.5px solid #e8e8e8', borderRadius:10, padding:'12px 14px', cursor:'pointer', background:'#fafafa', transition:'border-color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor='#2874f0'}
+                onMouseLeave={e => e.currentTarget.style.borderColor='#e8e8e8'}>
+                {app.logo}
+                <div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#212121' }}>{app.name}</div>
+                  <div style={{ fontSize:11, color:'#888' }}>Tap to open</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+
         </div>
 
         {/* No COD */}
         <div style={{ background:'#fff', padding:'12px 16px', marginBottom:2 }}>
-          <div style={{ fontSize:13, color:'#d32f2f', fontWeight:500 }}>❌ Cash on Delivery not available.</div>
+          <div style={{ fontSize:13, color:'#d32f2f', fontWeight:600 }}>❌ Cash on Delivery not available for this product.</div>
         </div>
 
         {/* Safety */}
-        <div style={{ background:'#f1f3f6', padding:'12px 16px', display:'flex', alignItems:'center', gap:10, marginBottom:2 }}>
+        <div style={{ background:'#f1f3f6', padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
           <img src="https://rukminim1.flixcart.com/www/60/70/promos/13/02/2019/9b179a8a-a0e2-497b-bd44-20aa733dc0ec.png?q=90"
-            alt="" style={{ width:40, height:30, objectFit:'contain' }} />
-          <div style={{ fontSize:12, color:'#717478', fontWeight:600, lineHeight:1.5 }}>
-            Safe and secure payments.<br/>Easy returns. 100% Authentic products.
-          </div>
+            alt="" style={{ width:36, height:28, objectFit:'contain' }} />
+          <div style={{ fontSize:12, color:'#717478', fontWeight:600, lineHeight:1.5 }}>Safe and secure payments.<br/>Easy returns. 100% Authentic products.</div>
         </div>
       </div>
 
       {/* Bottom bar */}
-      <div style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #eee', display:'flex', alignItems:'center', padding:'10px 16px', zIndex:50, gap:12, boxShadow:'0 -2px 8px rgba(0,0,0,.08)' }}>
+      <div style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #eee', display:'flex', alignItems:'center', padding:'10px 14px', zIndex:50, gap:12, boxShadow:'0 -2px 10px rgba(0,0,0,.08)' }}>
         <div style={{ flex:1 }}>
           <div style={{ fontSize:11, textDecoration:'line-through', color:'#878787' }}>₹{Number(product.oldPrice).toLocaleString()}</div>
-          <div style={{ fontSize:20, fontWeight:800 }}>₹{Number(product.price).toLocaleString()}</div>
+          <div style={{ fontSize:22, fontWeight:900, color:'#212121' }}>₹{Number(amount).toLocaleString()}</div>
         </div>
-        <button onClick={mainAction} disabled={loading}
-          style={{ flex:1, background: loading ? '#ccc' : '#fb641b', color:'#fff', border:'none', borderRadius:2, padding:13, fontSize:14, fontWeight:700, cursor: loading ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+        <button
+          onClick={hasCF ? handleCashfreePayment : () => openUpiApp('phonepe')}
+          disabled={loading}
+          style={{ flex:1.2, background: loading?'#ccc':'#fb641b', color:'#fff', border:'none', borderRadius:4, padding:14, fontSize:15, fontWeight:700, cursor: loading?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
           {loading
-            ? <><span style={{ width:16, height:16, border:'2px solid #fff', borderTopColor:'transparent', borderRadius:'50%', display:'inline-block', animation:'spin .7s linear infinite' }} /> Processing...</>
+            ? <><span style={{ width:16,height:16,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin .7s linear infinite' }}/> Processing...</>
             : 'PAY NOW'}
         </button>
       </div>

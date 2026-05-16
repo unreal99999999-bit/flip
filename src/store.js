@@ -96,3 +96,41 @@ export function getCashfreeCreds() {
 export function saveCashfreeCreds(creds) {
   localStorage.setItem(CF_KEY, JSON.stringify(creds));
 }
+
+// ─── GITHUB SETTINGS (for product sync) ──────────────────────
+const GH_KEY = 'shop_github_settings';
+
+export function getGithubSettings() {
+  try {
+    const stored = localStorage.getItem(GH_KEY);
+    return stored ? JSON.parse(stored) : { token: '', owner: '', repo: '' };
+  } catch { return { token: '', owner: '', repo: '' }; }
+}
+
+export function saveGithubSettings(settings) {
+  localStorage.setItem(GH_KEY, JSON.stringify(settings));
+}
+
+// ─── BANNERS ──────────────────────────────────────────────────
+const BANNER_KEY = 'shop_banners';
+const DEFAULT_BANNERS = ['/zeb.jpg', '/iphone.jpg', '/plane.jpg'];
+
+export function getBanners() {
+  try {
+    const stored = localStorage.getItem(BANNER_KEY);
+    return stored ? JSON.parse(stored) : DEFAULT_BANNERS;
+  } catch { return DEFAULT_BANNERS; }
+}
+
+export function saveBanners(banners) {
+  localStorage.setItem(BANNER_KEY, JSON.stringify(banners));
+}
+
+// ─── EDIT PRODUCT ─────────────────────────────────────────────
+export function updateProduct(id, updated) {
+  const products = getProducts();
+  const idx = products.findIndex(p => String(p._id) === String(id));
+  if (idx === -1) return;
+  products[idx] = { ...products[idx], ...updated };
+  saveProducts(products);
+}
