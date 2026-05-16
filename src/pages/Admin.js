@@ -119,8 +119,11 @@ export default function Admin() {
 
   /* ── GitHub ── */
   const handleSaveGithub = () => {
-    if (!ghSettings.token || !ghSettings.owner || !ghSettings.repo) { notify('Fill all 3 fields.', 'error'); return; }
-    saveGithubSettings(ghSettings); notify('✅ GitHub settings saved!');
+    const trimmed = { token: ghSettings.token.trim(), owner: ghSettings.owner.trim(), repo: ghSettings.repo.trim() };
+    if (!trimmed.token || !trimmed.owner || !trimmed.repo) { notify('Fill all 3 fields.', 'error'); return; }
+    setGhSettings(trimmed);
+    saveGithubSettings(trimmed);
+    notify('✅ GitHub settings saved! You can now sync products.');
   };
 
   const TABS = [

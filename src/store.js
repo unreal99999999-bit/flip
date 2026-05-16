@@ -55,14 +55,7 @@ export function saveOrder(order) {
   return newOrder;
 }
 
-// ─── PAYMENT URL ─────────────────────────────────────────────
-export function getPaymentUrl() {
-  return localStorage.getItem(KEYS.PAYMENT) || 'Mswp.2520092325649458@axisbank';
-}
 
-export function savePaymentUrl(url) {
-  localStorage.setItem(KEYS.PAYMENT, url);
-}
 
 // ─── ADMIN AUTH ───────────────────────────────────────────────
 const ADMIN_PASSWORD = 'zadi@1';
