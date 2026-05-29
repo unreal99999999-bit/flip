@@ -14,20 +14,20 @@ const lbl = { display:'block', fontSize:12, fontWeight:700, color:'#555', margin
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [tab, setTab]             = useState('products');
-  const [products, setProducts]   = useState([]);
-  const [orders, setOrders]       = useState([]);
-  const [creds, setCreds]         = useState({ appId:'', secretKey:'', environment:'production' });
+  const [tab, setTab]               = useState('products');
+  const [products, setProducts]     = useState([]);
+  const [orders, setOrders]         = useState([]);
+  const [creds, setCreds]           = useState({ appId:'', secretKey:'', environment:'production' });
   const [ghSettings, setGhSettings] = useState({ token:'', owner:'', repo:'' });
-  const [banners, setBannersState]= useState([]);
+  const [banners, setBannersState]  = useState([]);
   const [showSecret, setShowSecret] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-  const [showAdd, setShowAdd]     = useState(false);
-  const [editId, setEditId]       = useState(null);   // product being edited
-  const [editForm, setEditForm]   = useState({});
-  const [form, setForm]           = useState(EMPTY);
-  const [syncing, setSyncing]     = useState(false);
-  const [msg, setMsg]             = useState({ text:'', type:'success' });
+  const [showToken, setShowToken]   = useState(false);
+  const [showAdd, setShowAdd]       = useState(false);
+  const [editId, setEditId]         = useState(null);
+  const [editForm, setEditForm]     = useState({});
+  const [form, setForm]             = useState(EMPTY);
+  const [syncing, setSyncing]       = useState(false);
+  const [msg, setMsg]               = useState({ text:'', type:'success' });
 
   useEffect(() => {
     if (!isAdminLoggedIn()) { navigate('/login'); return; }
@@ -48,7 +48,7 @@ export default function Admin() {
       colors: form.colors.split(',').map(s=>s.trim()).filter(Boolean),
       colorImageUrls: form.colorImageUrls.split(',').map(s=>s.trim()).filter(Boolean) });
     setProducts(getProducts()); setForm(EMPTY); setShowAdd(false);
-    notify('✅ Product added. Click "🚀 Sync to Website" to publish.');
+    notify('✅ Product added. Click "🚀 Sync to Website" to publish for all users.');
   };
 
   const handleDelete = id => {
@@ -58,71 +58,58 @@ export default function Admin() {
   };
 
   const startEdit = p => {
-    setEditId(p._id);
-    setEditForm({
-      name: p.name, brand: p.brand, description: p.description||'',
-      price: p.price, discount: p.discount, oldPrice: p.oldPrice,
-      colors: (p.colors||[]).join(', '),
-      colorImageUrls: (p.colorImageUrls||[]).join(', '),
-    });
+    setEditId(p._id); setShowAdd(false);
+    setEditForm({ name:p.name, brand:p.brand, description:p.description||'',
+      price:p.price, discount:p.discount, oldPrice:p.oldPrice,
+      colors:(p.colors||[]).join(', '), colorImageUrls:(p.colorImageUrls||[]).join(', ') });
+    setTimeout(() => document.getElementById('editForm')?.scrollIntoView({ behavior:'smooth' }), 100);
   };
 
   const handleSaveEdit = e => {
     e.preventDefault();
-    updateProduct(editId, {
-      ...editForm, price:Number(editForm.price), discount:Number(editForm.discount), oldPrice:Number(editForm.oldPrice),
+    updateProduct(editId, { ...editForm, price:Number(editForm.price), discount:Number(editForm.discount), oldPrice:Number(editForm.oldPrice),
       colors: editForm.colors.split(',').map(s=>s.trim()).filter(Boolean),
-      colorImageUrls: editForm.colorImageUrls.split(',').map(s=>s.trim()).filter(Boolean),
-    });
+      colorImageUrls: editForm.colorImageUrls.split(',').map(s=>s.trim()).filter(Boolean) });
     setProducts(getProducts()); setEditId(null);
     notify('✅ Product updated. Click "🚀 Sync to Website" to publish.');
   };
 
-  /* ── Sync ── */
+  /* ── GitHub Sync ── */
   const handleSync = async () => {
     const gh = getGithubSettings();
     if (!gh.token || !gh.owner || !gh.repo) { setTab('github'); notify('Set up GitHub settings first.', 'error'); return; }
-    setSyncing(true);
-    notify('⏳ Syncing to GitHub...', 'info');
+    setSyncing(true); notify('⏳ Syncing products to GitHub...', 'info');
     try {
       const res = await fetch('/api/sync-products', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ products: getProducts(), githubToken:gh.token, repoOwner:gh.owner, repoName:gh.repo }),
+        body: JSON.stringify({ products:getProducts(), githubToken:gh.token, repoOwner:gh.owner, repoName:gh.repo }),
       });
       const data = await res.json();
-      if (!res.ok || data.error) notify(data.error||'Sync failed.', 'error');
+      if (!res.ok || data.error) notify('❌ ' + (data.error||'Sync failed.'), 'error');
       else notify('🎉 ' + data.message);
-    } catch { notify('Network error. Try again.', 'error'); }
+    } catch (err) { notify('❌ Network error: ' + err.message, 'error'); }
     finally { setSyncing(false); }
   };
 
   /* ── Banners ── */
-  const handleBannerChange = (i, val) => {
-    const updated = [...banners];
-    updated[i] = val;
-    setBannersState(updated);
-  };
+  const handleBannerChange = (i, val) => { const b=[...banners]; b[i]=val; setBannersState(b); };
   const handleSaveBanners = () => {
-    const filtered = banners.filter(b => b.trim());
-    if (!filtered.length) { notify('Add at least 1 banner URL.', 'error'); return; }
-    saveBanners(filtered);
-    notify('✅ Banners saved! Refresh the home page to see changes.');
+    const f = banners.filter(b=>b.trim());
+    if (!f.length) { notify('Add at least 1 banner URL.','error'); return; }
+    saveBanners(f); notify('✅ Banners saved! Refresh home page to see changes.');
   };
-  const addBannerSlot = () => { if (banners.length < 6) setBannersState([...banners, '']); };
-  const removeBanner = i => { const b = banners.filter((_,idx)=>idx!==i); setBannersState(b.length ? b : ['']); };
 
   /* ── Payment ── */
   const handleSaveCreds = () => {
-    if (!creds.appId || !creds.secretKey) { notify('Enter both App ID and Secret Key.', 'error'); return; }
-    saveCashfreeCreds(creds); notify('✅ Payment credentials saved!');
+    if (!creds.appId || !creds.secretKey) { notify('Enter both App ID and Secret Key.','error'); return; }
+    saveCashfreeCreds(creds); notify('✅ Credentials saved!');
   };
 
-  /* ── GitHub ── */
+  /* ── GitHub Settings ── */
   const handleSaveGithub = () => {
-    const trimmed = { token: ghSettings.token.trim(), owner: ghSettings.owner.trim(), repo: ghSettings.repo.trim() };
-    if (!trimmed.token || !trimmed.owner || !trimmed.repo) { notify('Fill all 3 fields.', 'error'); return; }
-    setGhSettings(trimmed);
-    saveGithubSettings(trimmed);
+    const trimmed = { token:ghSettings.token.trim(), owner:ghSettings.owner.trim(), repo:ghSettings.repo.trim() };
+    if (!trimmed.token || !trimmed.owner || !trimmed.repo) { notify('Fill all 3 fields.','error'); return; }
+    setGhSettings(trimmed); saveGithubSettings(trimmed);
     notify('✅ GitHub settings saved! You can now sync products.');
   };
 
@@ -148,7 +135,7 @@ export default function Admin() {
 
       {/* Tabs */}
       <div style={{ background:'#fff', borderBottom:'2px solid #eee', display:'flex', overflowX:'auto' }}>
-        {TABS.map(([key, label]) => (
+        {TABS.map(([key,label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{ border:'none', background:'none', padding:'13px 14px', fontWeight:700, fontSize:12, color:tab===key?'#2874F0':'#666', borderBottom:tab===key?'3px solid #2874F0':'3px solid transparent', cursor:'pointer', whiteSpace:'nowrap' }}>
             {label}
@@ -165,25 +152,26 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ══════════ PRODUCTS ══════════ */}
-        {tab === 'products' && (
+        {/* ════ PRODUCTS ════ */}
+        {tab==='products' && (
           <div>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10, flexWrap:'wrap', gap:8 }}>
               <span style={{ fontWeight:700, fontSize:15 }}>All Products</span>
-              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', gap:8 }}>
                 <button onClick={handleSync} disabled={syncing}
-                  style={{ background:syncing?'#ccc':'#4caf50', color:'#fff', border:'none', borderRadius:4, padding:'8px 14px', fontWeight:700, cursor:syncing?'not-allowed':'pointer', display:'flex', alignItems:'center', gap:5, fontSize:12 }}>
-                  {syncing ? <><span style={{ width:11,height:11,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin .7s linear infinite' }}/> Syncing...</> : '🚀 Sync to Website'}
+                  style={{ background:syncing?'#ccc':'#388e3c', color:'#fff', border:'none', borderRadius:4, padding:'8px 14px', fontWeight:700, cursor:syncing?'not-allowed':'pointer', fontSize:12, display:'flex', alignItems:'center', gap:5 }}>
+                  {syncing?<><span style={{ width:11,height:11,border:'2px solid #fff',borderTopColor:'transparent',borderRadius:'50%',display:'inline-block',animation:'spin .7s linear infinite' }}/>Syncing...</>:'🚀 Sync to Website'}
                 </button>
                 <button onClick={() => { setShowAdd(!showAdd); setEditId(null); }}
                   style={{ background:showAdd?'#f5f5f5':'#2874F0', color:showAdd?'#333':'#fff', border:'none', borderRadius:4, padding:'8px 14px', fontWeight:700, cursor:'pointer', fontSize:12 }}>
-                  {showAdd ? '✕ Cancel' : '+ Add Product'}
+                  {showAdd?'✕ Cancel':'+ Add Product'}
                 </button>
               </div>
             </div>
 
             <div style={{ background:'#e3f2fd', border:'1px solid #90caf9', borderRadius:6, padding:10, marginBottom:12, fontSize:12, color:'#1565c0', lineHeight:1.6 }}>
-              <strong>ℹ️</strong> Add/Edit/Delete products → click <strong>🚀 Sync to Website</strong> → all customers see changes in ~2 min. Setup <strong>🔗 GitHub Sync</strong> tab first.
+              <strong>ℹ️</strong> Add / Edit / Delete → click <strong>🚀 Sync to Website</strong> → all users see changes in ~2 min.<br/>
+              First time: set up <strong>🔗 GitHub Sync</strong> tab.
             </div>
 
             {/* Add form */}
@@ -192,16 +180,16 @@ export default function Admin() {
                 <div style={{ fontWeight:700, marginBottom:12, color:'#2874F0', fontSize:14 }}>➕ Add New Product</div>
                 <form onSubmit={handleAdd}>
                   <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-                    <div style={{ flex:1 }}><label style={lbl}>Product Name *</label><input style={inp} placeholder="e.g. iPhone 16 Pro" required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
-                    <div style={{ flex:1 }}><label style={lbl}>Brand *</label><input style={inp} placeholder="e.g. Apple" required value={form.brand} onChange={e=>setForm({...form,brand:e.target.value})}/></div>
+                    <div style={{ flex:1 }}><label style={lbl}>Product Name *</label><input style={inp} required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="e.g. iPhone 16 Pro"/></div>
+                    <div style={{ flex:1 }}><label style={lbl}>Brand *</label><input style={inp} required value={form.brand} onChange={e=>setForm({...form,brand:e.target.value})} placeholder="e.g. Apple"/></div>
                   </div>
                   <div style={{ display:'flex', gap:8, marginBottom:8 }}>
-                    <div style={{ flex:1 }}><label style={lbl}>Selling Price ₹ *</label><input style={inp} type="number" placeholder="499" required value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/></div>
-                    <div style={{ flex:1 }}><label style={lbl}>Original MRP ₹ *</label><input style={inp} type="number" placeholder="89999" required value={form.oldPrice} onChange={e=>setForm({...form,oldPrice:e.target.value})}/></div>
-                    <div style={{ flex:1 }}><label style={lbl}>Discount % *</label><input style={inp} type="number" placeholder="99" required value={form.discount} onChange={e=>setForm({...form,discount:e.target.value})}/></div>
+                    <div style={{ flex:1 }}><label style={lbl}>Selling Price ₹ *</label><input style={inp} type="number" required value={form.price} onChange={e=>setForm({...form,price:e.target.value})} placeholder="499"/></div>
+                    <div style={{ flex:1 }}><label style={lbl}>Original MRP ₹ *</label><input style={inp} type="number" required value={form.oldPrice} onChange={e=>setForm({...form,oldPrice:e.target.value})} placeholder="89999"/></div>
+                    <div style={{ flex:1 }}><label style={lbl}>Discount % *</label><input style={inp} type="number" required value={form.discount} onChange={e=>setForm({...form,discount:e.target.value})} placeholder="99"/></div>
                   </div>
-                  <div style={{ marginBottom:8 }}><label style={lbl}>Colors (comma-separated)</label><input style={inp} placeholder="Black, White, Blue" value={form.colors} onChange={e=>setForm({...form,colors:e.target.value})}/></div>
-                  <div style={{ marginBottom:8 }}><label style={lbl}>Image URLs (comma-separated) *</label><input style={inp} placeholder="https://img1.jpg, https://img2.jpg" value={form.colorImageUrls} onChange={e=>setForm({...form,colorImageUrls:e.target.value})}/></div>
+                  <div style={{ marginBottom:8 }}><label style={lbl}>Colors (comma-separated)</label><input style={inp} value={form.colors} onChange={e=>setForm({...form,colors:e.target.value})} placeholder="Black, White"/></div>
+                  <div style={{ marginBottom:8 }}><label style={lbl}>Image URLs (comma-separated) *</label><input style={inp} value={form.colorImageUrls} onChange={e=>setForm({...form,colorImageUrls:e.target.value})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
                   <div style={{ marginBottom:10 }}><label style={lbl}>Description</label><textarea style={{ ...inp, height:64, resize:'vertical' }} value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
                   <button type="submit" style={{ background:'#388e3c', color:'#fff', border:'none', borderRadius:4, padding:'10px 24px', fontWeight:700, cursor:'pointer' }}>✅ Add Product</button>
                 </form>
@@ -210,7 +198,7 @@ export default function Admin() {
 
             {/* Edit form */}
             {editId && (
-              <div style={{ background:'#fff8e1', border:'2px solid #FFD000', borderRadius:4, padding:16, marginBottom:12 }}>
+              <div id="editForm" style={{ background:'#fff8e1', border:'2px solid #FFD000', borderRadius:4, padding:16, marginBottom:12 }}>
                 <div style={{ fontWeight:700, marginBottom:12, color:'#e65100', fontSize:14 }}>✏️ Edit Product</div>
                 <form onSubmit={handleSaveEdit}>
                   <div style={{ display:'flex', gap:8, marginBottom:8 }}>
@@ -246,10 +234,7 @@ export default function Admin() {
                 <tbody>
                   {products.map((p,i) => (
                     <tr key={p._id} style={{ background:editId===p._id?'#fff8e1':i%2===0?'#fff':'#fafafa', borderBottom:'1px solid #f0f0f0' }}>
-                      <td style={{ padding:8 }}>
-                        <img src={(p.colorImageUrls||[])[0]?.trim()} alt="" style={{ width:44,height:44,objectFit:'contain' }}
-                          onError={e=>{e.target.src='https://via.placeholder.com/44';}}/>
-                      </td>
+                      <td style={{ padding:8 }}><img src={(p.colorImageUrls||[])[0]?.trim()} alt="" style={{ width:44,height:44,objectFit:'contain' }} onError={e=>{e.target.src='https://via.placeholder.com/44';}}/></td>
                       <td style={{ padding:8, maxWidth:180, fontSize:12 }}>{p.name}</td>
                       <td style={{ padding:8 }}>{p.brand}</td>
                       <td style={{ padding:8, fontWeight:700 }}>₹{Number(p.price).toLocaleString()}</td>
@@ -257,14 +242,8 @@ export default function Admin() {
                       <td style={{ padding:8, color:'#388e3c', fontWeight:700 }}>{p.discount}%</td>
                       <td style={{ padding:8 }}>
                         <div style={{ display:'flex', gap:5 }}>
-                          <button onClick={() => startEdit(p)}
-                            style={{ background:'#e8f0fe', color:'#2874F0', border:'1px solid #c5d5ff', borderRadius:4, padding:'4px 10px', cursor:'pointer', fontWeight:600, fontSize:11 }}>
-                            ✏️ Edit
-                          </button>
-                          <button onClick={() => handleDelete(p._id)}
-                            style={{ background:'#ffebee', color:'#c62828', border:'1px solid #ffcdd2', borderRadius:4, padding:'4px 10px', cursor:'pointer', fontWeight:600, fontSize:11 }}>
-                            🗑️ Delete
-                          </button>
+                          <button onClick={() => startEdit(p)} style={{ background:'#e8f0fe', color:'#2874F0', border:'1px solid #c5d5ff', borderRadius:4, padding:'4px 10px', cursor:'pointer', fontWeight:600, fontSize:11 }}>✏️ Edit</button>
+                          <button onClick={() => handleDelete(p._id)} style={{ background:'#ffebee', color:'#c62828', border:'1px solid #ffcdd2', borderRadius:4, padding:'4px 10px', cursor:'pointer', fontWeight:600, fontSize:11 }}>🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -276,10 +255,13 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ══════════ ORDERS ══════════ */}
-        {tab === 'orders' && (
+        {/* ════ ORDERS ════ */}
+        {tab==='orders' && (
           <div>
             <div style={{ fontWeight:700, fontSize:15, marginBottom:10 }}>All Orders</div>
+            <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:6, padding:10, marginBottom:12, fontSize:12, color:'#e65100' }}>
+              ⚠️ Orders are saved per-device (browser storage). Each customer's orders appear on their own device only.
+            </div>
             <div style={{ background:'#fff', borderRadius:4, overflow:'auto', boxShadow:'0 1px 3px rgba(0,0,0,.08)' }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:600 }}>
                 <thead>
@@ -299,9 +281,7 @@ export default function Admin() {
                       <td style={{ padding:8, maxWidth:160, fontSize:11 }}>{o.productName||o.productId}</td>
                       <td style={{ padding:8, fontWeight:700 }}>₹{Number(o.productPrice).toLocaleString()}</td>
                       <td style={{ padding:8, fontSize:11 }}>{new Date(o.createdAt).toLocaleDateString('en-IN')}</td>
-                      <td style={{ padding:8 }}>
-                        <span style={{ background:o.status==='delivered'?'#4caf50':o.status==='shipped'?'#9c27b0':o.status==='confirmed'?'#2196f3':'#ff9800', color:'#fff', borderRadius:3, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{o.status}</span>
-                      </td>
+                      <td style={{ padding:8 }}><span style={{ background:o.status==='delivered'?'#4caf50':o.status==='shipped'?'#9c27b0':o.status==='confirmed'?'#2196f3':'#ff9800', color:'#fff', borderRadius:3, padding:'2px 8px', fontSize:11, fontWeight:600 }}>{o.status}</span></td>
                     </tr>
                   ))}
                   {!orders.length && <tr><td colSpan={8} style={{ padding:24, textAlign:'center', color:'#aaa' }}>No orders yet.</td></tr>}
@@ -311,80 +291,56 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ══════════ BANNERS ══════════ */}
-        {tab === 'banners' && (
+        {/* ════ BANNERS ════ */}
+        {tab==='banners' && (
           <div style={{ maxWidth:560 }}>
-            <div style={{ fontWeight:700, fontSize:15, marginBottom:6 }}>🖼️ Manage Banners</div>
-            <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:6, padding:10, marginBottom:16, fontSize:12, color:'#2e7d32', lineHeight:1.6 }}>
-              <strong>ℹ️ How it works:</strong> Paste any image URL for each banner slot. Changes take effect immediately after Save — no rebuild needed! Use direct image links (ending in .jpg / .png / .webp).
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:8 }}>🖼️ Manage Banners</div>
+            <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:6, padding:10, marginBottom:14, fontSize:12, color:'#2e7d32', lineHeight:1.6 }}>
+              Paste any image URL. Changes take effect immediately after Save — no rebuild needed!
             </div>
-
             <div style={{ background:'#fff', borderRadius:8, padding:16, boxShadow:'0 1px 4px rgba(0,0,0,.1)' }}>
-              {banners.map((url, i) => (
+              {banners.map((url,i) => (
                 <div key={i} style={{ marginBottom:14 }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                    <label style={{ ...lbl, marginBottom:0 }}>Banner {i + 1}</label>
-                    {banners.length > 1 && (
-                      <button onClick={() => removeBanner(i)}
-                        style={{ background:'none', border:'none', color:'#e53935', cursor:'pointer', fontSize:18, lineHeight:1 }}>✕</button>
-                    )}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:5 }}>
+                    <label style={{ ...lbl, marginBottom:0 }}>Banner {i+1}</label>
+                    {banners.length>1 && <button onClick={() => setBannersState(banners.filter((_,idx)=>idx!==i))} style={{ background:'none', border:'none', color:'#e53935', cursor:'pointer', fontSize:18 }}>✕</button>}
                   </div>
-                  <input style={inp} placeholder="https://example.com/banner.jpg"
-                    value={url} onChange={e => handleBannerChange(i, e.target.value)} />
-                  {url.trim() && (
-                    <img src={url.trim()} alt=""
-                      style={{ width:'100%', maxHeight:100, objectFit:'cover', borderRadius:4, marginTop:6, border:'1px solid #eee' }}
-                      onError={e => { e.target.style.display='none'; }} />
-                  )}
+                  <input style={inp} placeholder="https://example.com/banner.jpg" value={url} onChange={e=>handleBannerChange(i,e.target.value)}/>
+                  {url.trim() && <img src={url.trim()} alt="" style={{ width:'100%', maxHeight:90, objectFit:'cover', borderRadius:4, marginTop:6, border:'1px solid #eee' }} onError={e=>{e.target.style.display='none';}}/>}
                 </div>
               ))}
-
-              {banners.length < 6 && (
-                <button onClick={addBannerSlot}
-                  style={{ background:'#f5f5f5', color:'#555', border:'1px dashed #ccc', borderRadius:4, padding:'8px 16px', cursor:'pointer', fontWeight:600, fontSize:12, width:'100%', marginBottom:14 }}>
-                  + Add Banner Slot
-                </button>
-              )}
-
-              <button onClick={handleSaveBanners}
-                style={{ background:'#2874F0', color:'#fff', border:'none', borderRadius:4, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontSize:14, width:'100%' }}>
-                💾 Save Banners
-              </button>
-
-              <div style={{ fontSize:11, color:'#888', marginTop:10, lineHeight:1.6 }}>
-                💡 Tip: Right-click any image on the web → "Copy image address" → paste here.<br/>
-                Works with: Flipkart product images, Google images, or your own hosted images.
-              </div>
+              {banners.length<6 && <button onClick={() => setBannersState([...banners,''])} style={{ background:'#f5f5f5', color:'#555', border:'1px dashed #ccc', borderRadius:4, padding:'8px 16px', cursor:'pointer', fontWeight:600, fontSize:12, width:'100%', marginBottom:14 }}>+ Add Banner Slot</button>}
+              <button onClick={handleSaveBanners} style={{ background:'#2874F0', color:'#fff', border:'none', borderRadius:4, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontSize:14, width:'100%' }}>💾 Save Banners</button>
+              <div style={{ fontSize:11, color:'#888', marginTop:10, lineHeight:1.6 }}>💡 Right-click any image → "Copy image address" → paste here.</div>
             </div>
           </div>
         )}
 
-        {/* ══════════ GITHUB SYNC ══════════ */}
-        {tab === 'github' && (
+        {/* ════ GITHUB SYNC ════ */}
+        {tab==='github' && (
           <div style={{ maxWidth:520 }}>
-            <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:8, padding:16, marginBottom:16 }}>
-              <div style={{ fontWeight:800, fontSize:14, color:'#1b5e20', marginBottom:12 }}>📖 Get GitHub Token (3 steps)</div>
+            <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:8, padding:16, marginBottom:14 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:'#1b5e20', marginBottom:10 }}>📖 Get GitHub Token (3 steps)</div>
               {[
-                { step:'1', title:'Open GitHub Settings', desc:'github.com → Profile picture → Settings → Developer settings (bottom of left menu)' },
-                { step:'2', title:'Create Token', desc:'Personal access tokens → Tokens (classic) → Generate new token → Name: "shop-sync" → Check "repo" → Generate token' },
-                { step:'3', title:'Copy & Paste Below', desc:'Copy the token (ghp_...) immediately — GitHub shows it only once! Paste below with your repo details.' },
-              ].map(s => (
-                <div key={s.step} style={{ display:'flex', gap:12, marginBottom:10 }}>
-                  <div style={{ background:'#388e3c', color:'#fff', width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:12, flexShrink:0 }}>{s.step}</div>
-                  <div>
-                    <div style={{ fontWeight:700, color:'#1b5e20', fontSize:13 }}>{s.title}</div>
-                    <div style={{ color:'#33691e', fontSize:12, lineHeight:1.5 }}>{s.desc}</div>
-                  </div>
+                { n:'1', t:'Open GitHub Settings', d:'github.com → Profile picture → Settings → Developer settings (bottom left)' },
+                { n:'2', t:'Create Token', d:'Personal access tokens → Tokens (classic) → Generate new token → Name: "shop-sync" → Check "repo" checkbox → Generate token' },
+                { n:'3', t:'Copy & Paste Below', d:'Copy the token (starts with ghp_...) — GitHub shows it only once! Paste below.' },
+              ].map(s=>(
+                <div key={s.n} style={{ display:'flex', gap:12, marginBottom:8 }}>
+                  <div style={{ background:'#388e3c', color:'#fff', width:24, height:24, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:12, flexShrink:0 }}>{s.n}</div>
+                  <div><div style={{ fontWeight:700, color:'#1b5e20', fontSize:13 }}>{s.t}</div><div style={{ color:'#33691e', fontSize:12, lineHeight:1.5 }}>{s.d}</div></div>
                 </div>
               ))}
               <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer"
-                style={{ display:'inline-block', background:'#388e3c', color:'#fff', borderRadius:4, padding:'8px 18px', fontWeight:700, fontSize:13, marginTop:4 }}>
+                style={{ display:'inline-block', background:'#388e3c', color:'#fff', borderRadius:4, padding:'8px 18px', fontWeight:700, fontSize:13, marginTop:6 }}>
                 Open GitHub Token Page ↗
               </a>
             </div>
-            <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:6, padding:12, marginBottom:14, fontSize:12, color:'#e65100' }}>
+
+            <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:6, padding:10, marginBottom:14, fontSize:12, color:'#e65100' }}>
               <strong>Your values:</strong> Owner = <code>unreal99999999-bit</code> · Repo = <code>flip</code>
             </div>
+
             <div style={{ background:'#fff', borderRadius:8, padding:16, boxShadow:'0 1px 4px rgba(0,0,0,.1)' }}>
               <div style={{ fontWeight:800, fontSize:14, marginBottom:14 }}>🔗 GitHub Settings</div>
               <div style={{ marginBottom:12 }}><label style={lbl}>Repo Owner *</label><input style={inp} placeholder="unreal99999999-bit" value={ghSettings.owner} onChange={e=>setGhSettings({...ghSettings,owner:e.target.value})}/></div>
@@ -396,41 +352,67 @@ export default function Admin() {
                   <button type="button" onClick={()=>setShowToken(s=>!s)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16 }}>{showToken?'🙈':'👁️'}</button>
                 </div>
               </div>
-              {ghSettings.token && ghSettings.owner && ghSettings.repo ? (
-                <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#2e7d32', marginBottom:12 }}>✅ Configured for {ghSettings.owner}/{ghSettings.repo}</div>
-              ) : (
-                <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#e65100', marginBottom:12 }}>⚠️ Fill all fields to enable syncing.</div>
-              )}
-              <button onClick={handleSaveGithub} style={{ background:'#2874F0', color:'#fff', border:'none', borderRadius:4, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontSize:14, width:'100%' }}>💾 Save GitHub Settings</button>
+              {ghSettings.token && ghSettings.owner && ghSettings.repo
+                ? <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#2e7d32', marginBottom:12 }}>✅ Configured for {ghSettings.owner}/{ghSettings.repo}</div>
+                : <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#e65100', marginBottom:12 }}>⚠️ Fill all fields to enable product syncing.</div>}
+              <button onClick={handleSaveGithub} style={{ background:'#2874F0', color:'#fff', border:'none', borderRadius:4, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontSize:14, width:'100%' }}>
+                💾 Save GitHub Settings
+              </button>
             </div>
           </div>
         )}
 
-        {/* ══════════ PAYMENT ══════════ */}
-        {tab === 'payment' && (
+        {/* ════ PAYMENT ════ */}
+        {tab==='payment' && (
           <div style={{ maxWidth:520 }}>
-            <div style={{ background:'#e3f2fd', border:'1px solid #90caf9', borderRadius:8, padding:16, marginBottom:16 }}>
-              <div style={{ fontWeight:800, fontSize:14, color:'#1565c0', marginBottom:12 }}>📖 Cashfree Setup</div>
+
+            {/* Important notice */}
+            <div style={{ background:'#e3f2fd', border:'1px solid #90caf9', borderRadius:8, padding:16, marginBottom:14 }}>
+              <div style={{ fontWeight:800, fontSize:14, color:'#1565c0', marginBottom:10 }}>⚡ Important: Add Keys to Netlify Too</div>
+              <p style={{ fontSize:12, color:'#1a237e', lineHeight:1.6, margin:0 }}>
+                Saving keys here stores them in your browser. For the payment to work reliably on all devices, you must also add them as <strong>Netlify Environment Variables</strong>:
+              </p>
+              <ol style={{ fontSize:12, color:'#1a237e', lineHeight:1.8, marginTop:8, paddingLeft:18 }}>
+                <li>Go to <strong>Netlify → your site → Site configuration → Environment variables</strong></li>
+                <li>Click <strong>"Add a variable"</strong></li>
+                <li>Add: <code>CASHFREE_APP_ID</code> = your App ID</li>
+                <li>Add: <code>CASHFREE_SECRET_KEY</code> = your Secret Key</li>
+                <li>Add: <code>CASHFREE_ENV</code> = <code>production</code></li>
+                <li>Click <strong>Save</strong> → then <strong>Trigger deploy</strong></li>
+              </ol>
+              <a href="https://app.netlify.com" target="_blank" rel="noreferrer"
+                style={{ display:'inline-block', background:'#2874F0', color:'#fff', borderRadius:4, padding:'8px 18px', fontWeight:700, fontSize:13, marginTop:8 }}>
+                Open Netlify Dashboard ↗
+              </a>
+            </div>
+
+            {/* Cashfree setup guide */}
+            <div style={{ background:'#f3e5f5', border:'1px solid #ce93d8', borderRadius:8, padding:14, marginBottom:14 }}>
+              <div style={{ fontWeight:800, fontSize:13, color:'#4a148c', marginBottom:8 }}>📖 Get Cashfree API Keys</div>
               {[
-                {step:'1',title:'Create Account',desc:'cashfree.com → Sign Up → KYC (PAN + Bank). Takes 1–2 days.'},
-                {step:'2',title:'Get API Keys',desc:'Login → Developers → API Keys → Copy App ID & Secret Key.'},
-                {step:'3',title:'Save Below',desc:'Paste keys, pick environment, click Save. Done!'},
-                {step:'4',title:'Set Return URL',desc:'Cashfree → Settings → Return URL: your-site.netlify.app/payment-success'},
+                {n:'1', t:'Create Account', d:'cashfree.com → Sign Up → Complete KYC (PAN + Bank). Takes 1–2 days.'},
+                {n:'2', t:'Get Keys', d:'Login → Developers → API Keys → Copy App ID & Secret Key.'},
+                {n:'3', t:'Set Return URL', d:'Cashfree → Settings → Return URL: your-site.netlify.app/payment-success'},
               ].map(s=>(
-                <div key={s.step} style={{ display:'flex', gap:12, marginBottom:8 }}>
-                  <div style={{ background:'#2874F0', color:'#fff', width:22, height:22, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:11, flexShrink:0 }}>{s.step}</div>
-                  <div><div style={{ fontWeight:700, color:'#1a237e', fontSize:12 }}>{s.title}</div><div style={{ color:'#455a64', fontSize:12 }}>{s.desc}</div></div>
+                <div key={s.n} style={{ display:'flex', gap:10, marginBottom:7 }}>
+                  <div style={{ background:'#7b1fa2', color:'#fff', width:20, height:20, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:11, flexShrink:0 }}>{s.n}</div>
+                  <div><span style={{ fontWeight:700, color:'#4a148c', fontSize:12 }}>{s.t}: </span><span style={{ color:'#555', fontSize:12 }}>{s.d}</span></div>
                 </div>
               ))}
-              <a href="https://merchant.cashfree.com/merchants/signup" target="_blank" rel="noreferrer" style={{ display:'inline-block', background:'#2874F0', color:'#fff', borderRadius:4, padding:'7px 16px', fontWeight:700, fontSize:12, marginTop:6 }}>Open Cashfree ↗</a>
+              <a href="https://merchant.cashfree.com" target="_blank" rel="noreferrer"
+                style={{ display:'inline-block', background:'#7b1fa2', color:'#fff', borderRadius:4, padding:'7px 16px', fontWeight:700, fontSize:12, marginTop:6 }}>
+                Open Cashfree Dashboard ↗
+              </a>
             </div>
+
+            {/* Credentials form */}
             <div style={{ background:'#fff', borderRadius:8, padding:16, boxShadow:'0 1px 4px rgba(0,0,0,.1)' }}>
               <div style={{ fontWeight:800, fontSize:14, marginBottom:14 }}>🔑 Credentials</div>
-              <div style={{ marginBottom:12 }}><label style={lbl}>App ID *</label><input style={inp} placeholder="CF10234TESTAPP" value={creds.appId} onChange={e=>setCreds({...creds,appId:e.target.value})}/></div>
+              <div style={{ marginBottom:12 }}><label style={lbl}>App ID *</label><input style={inp} placeholder="e.g. CF10234..." value={creds.appId} onChange={e=>setCreds({...creds,appId:e.target.value})}/></div>
               <div style={{ marginBottom:12 }}>
                 <label style={lbl}>Secret Key *</label>
                 <div style={{ position:'relative' }}>
-                  <input style={{ ...inp, paddingRight:44 }} type={showSecret?'text':'password'} placeholder="Secret key" value={creds.secretKey} onChange={e=>setCreds({...creds,secretKey:e.target.value})}/>
+                  <input style={{ ...inp, paddingRight:44 }} type={showSecret?'text':'password'} placeholder="Your secret key" value={creds.secretKey} onChange={e=>setCreds({...creds,secretKey:e.target.value})}/>
                   <button type="button" onClick={()=>setShowSecret(s=>!s)} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16 }}>{showSecret?'🙈':'👁️'}</button>
                 </div>
               </div>
@@ -443,7 +425,7 @@ export default function Admin() {
                 ))}
               </div>
               {creds.appId && creds.secretKey
-                ? <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#2e7d32', marginBottom:12 }}>✅ Gateway configured.</div>
+                ? <div style={{ background:'#e8f5e9', border:'1px solid #c8e6c9', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#2e7d32', marginBottom:12 }}>✅ Keys saved in browser. Also add to Netlify env vars (see blue box above).</div>
                 : <div style={{ background:'#fff3e0', border:'1px solid #ffe0b2', borderRadius:4, padding:'8px 12px', fontSize:12, color:'#e65100', marginBottom:12 }}>⚠️ Enter keys and save.</div>}
               <div style={{ display:'flex', gap:10 }}>
                 <button onClick={handleSaveCreds} style={{ background:'#2874F0', color:'#fff', border:'none', borderRadius:4, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontSize:14, flex:1 }}>💾 Save</button>

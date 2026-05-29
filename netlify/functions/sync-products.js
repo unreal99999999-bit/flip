@@ -1,6 +1,5 @@
 // netlify/functions/sync-products.js
-// Updates products.js in GitHub repo via GitHub API
-// This triggers Netlify auto-rebuild so ALL users see new products
+// Updates src/products.js in GitHub → triggers Netlify auto-rebuild
 
 exports.handler = async (event) => {
   const headers = {
@@ -16,62 +15,54 @@ exports.handler = async (event) => {
   try {
     const { products, githubToken, repoOwner, repoName } = JSON.parse(event.body || '{}');
 
-    if (!githubToken || !repoOwner || !repoName) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing githubToken, repoOwner, or repoName' }) };
-    }
-
-    if (!Array.isArray(products)) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'products must be an array' }) };
-    }
+    if (!githubToken) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing GitHub token' }) };
+    if (!repoOwner)   return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing repo owner' }) };
+    if (!repoName)    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing repo name' }) };
+    if (!Array.isArray(products)) return { statusCode: 400, headers, body: JSON.stringify({ error: 'products must be an array' }) };
 
     const filePath = 'src/products.js';
-    const apiBase  = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${filePath}`;
+    const apiUrl   = `https://api.github.com/repos/${repoOwner}/${repoName}/contents/${filePath}`;
     const ghHeaders = {
       'Authorization': `token ${githubToken}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
+      'Accept':        'application/vnd.github.v3+json',
+      'Content-Type':  'application/json',
+      'User-Agent':    'netlify-shop-sync',
     };
 
-    // 1. Get current file SHA (needed to update)
-    const getRes  = await fetch(apiBase, { headers: ghHeaders });
+    // Get current file SHA
+    const getRes  = await fetch(apiUrl, { headers: ghHeaders });
     const getData = await getRes.json();
 
     if (!getRes.ok) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Could not read file from GitHub: ' + (getData.message || 'unknown error') }) };
+      return { statusCode: 400, headers, body: JSON.stringify({ error: `GitHub error: ${getData.message || 'Could not read file'}` }) };
     }
 
-    const sha = getData.sha;
-
-    // 2. Build new products.js content
+    // Build new file content
     const newContent = `const PRODUCTS = ${JSON.stringify(products, null, 2)};\nexport default PRODUCTS;\n`;
+    const encoded    = Buffer.from(newContent).toString('base64');
 
-    // 3. Base64 encode
-    const encoded = Buffer.from(newContent).toString('base64');
-
-    // 4. Push update to GitHub
-    const updateRes = await fetch(apiBase, {
+    // Push to GitHub
+    const putRes  = await fetch(apiUrl, {
       method: 'PUT',
       headers: ghHeaders,
       body: JSON.stringify({
-        message: `Admin: updated products list (${products.length} items)`,
+        message: `Admin: update products (${products.length} items)`,
         content: encoded,
-        sha: sha,
+        sha:     getData.sha,
       }),
     });
+    const putData = await putRes.json();
 
-    const updateData = await updateRes.json();
-
-    if (!updateRes.ok) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: 'GitHub update failed: ' + (updateData.message || 'unknown') }) };
+    if (!putRes.ok) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: `GitHub update failed: ${putData.message || 'unknown error'}` }) };
     }
 
     return {
       statusCode: 200, headers,
-      body: JSON.stringify({ success: true, message: `Products synced to GitHub! Netlify will rebuild in ~2 minutes.`, count: products.length }),
+      body: JSON.stringify({ success: true, message: `✅ ${products.length} products synced! Netlify is rebuilding (~2 min).` }),
     };
 
   } catch (err) {
-    console.error('sync-products error:', err);
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server error: ' + err.message }) };
   }
 };
